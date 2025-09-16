@@ -44,6 +44,7 @@ const getStoredTasks = () => {
         title: task.title,
         description: typeof task.description === 'string' ? task.description : '',
         status: task.status,
+        isPriority: Boolean(task.isPriority),
       }))
   } catch (error) {
     console.warn('Unable to read tasks from localStorage:', error)
@@ -56,6 +57,10 @@ function App() {
   const [formData, setFormData] = useState({ title: '', description: '' })
   const [activeColumn, setActiveColumn] = useState(null)
   const [draggedTaskId, setDraggedTaskId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showPriorityOnly, setShowPriorityOnly] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState(null)
+  const [editingData, setEditingData] = useState({ title: '', description: '' })
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -74,6 +79,50 @@ function App() {
 
     return grouped
   }, [tasks])
+
+  const filteredTasksByStatus = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    const isFilteringByPriority = showPriorityOnly
+
+    if (!query && !isFilteringByPriority) {
+      return tasksByStatus
+    }
+
+    return Object.fromEntries(
+      COLUMNS.map((column) => {
+        const columnTasks = tasksByStatus[column.key] ?? []
+
+        const filteredTasks = columnTasks.filter((task) => {
+          if (isFilteringByPriority && !task.isPriority) {
+            return false
+          }
+
+          if (!query) {
+            return true
+          }
+
+          const normalizedTitle = task.title.toLowerCase()
+          const normalizedDescription = task.description.toLowerCase()
+
+          return normalizedTitle.includes(query) || normalizedDescription.includes(query)
+        })
+
+        return [column.key, filteredTasks]
+      }),
+    )
+  }, [searchQuery, showPriorityOnly, tasksByStatus])
+
+  const hasActiveFilters = Boolean(searchQuery.trim()) || showPriorityOnly
+
+  const visibleTaskCount = useMemo(
+    () => COLUMNS.reduce((total, column) => total + (filteredTasksByStatus[column.key]?.length ?? 0), 0),
+    [filteredTasksByStatus],
+  )
+
+  const totalTasksByStatus = useMemo(
+    () => Object.fromEntries(COLUMNS.map((column) => [column.key, tasksByStatus[column.key]?.length ?? 0])),
+    [tasksByStatus],
+  )
 
   const handleInputChange = (event) => {
     const { name, value } = event.target
@@ -99,6 +148,7 @@ function App() {
       title,
       description,
       status: 'todo',
+      isPriority: false,
     }
 
     setTasks((current) => [newTask, ...current])
@@ -170,7 +220,90 @@ function App() {
     setActiveColumn(null)
   }
 
+  const handleSearchChange = (event) => {
+    setSearchQuery(event.target.value)
+  }
+
+  const handleClearSearch = () => {
+    setSearchQuery('')
+  }
+
+  const togglePriorityFilter = () => {
+    setShowPriorityOnly((current) => !current)
+  }
+
+  const toggleTaskPriority = (taskId) => {
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              isPriority: !task.isPriority,
+            }
+          : task,
+      ),
+    )
+  }
+
+  const cancelEditingTask = () => {
+    setEditingTaskId(null)
+    setEditingData({ title: '', description: '' })
+  }
+
+  const handleDeleteTask = (taskId) => {
+    setTasks((current) => current.filter((task) => task.id !== taskId))
+
+    if (editingTaskId === taskId) {
+      cancelEditingTask()
+    }
+  }
+
+  const startEditingTask = (task) => {
+    setEditingTaskId(task.id)
+    setEditingData({ title: task.title, description: task.description })
+  }
+
+  const handleEditFieldChange = (event) => {
+    const { name, value } = event.target
+
+    setEditingData((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  const handleEditSubmit = (event) => {
+    event.preventDefault()
+
+    if (!editingTaskId) {
+      return
+    }
+
+    const title = editingData.title.trim()
+    const description = editingData.description.trim()
+
+    if (!title) {
+      return
+    }
+
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === editingTaskId
+          ? {
+              ...task,
+              title,
+              description,
+            }
+          : task,
+      ),
+    )
+
+    setEditingTaskId(null)
+    setEditingData({ title: '', description: '' })
+  }
+
   const isSubmitDisabled = !formData.title.trim()
+  const isEditingSubmitDisabled = !editingData.title.trim()
 
   return (
     <div className="app">
@@ -179,6 +312,41 @@ function App() {
         <p className="page-subtitle">
           Capture tasks and move them across workflow stages. Drag and drop cards to update their status instantly.
         </p>
+
+        <div className="board-controls" role="region" aria-label="Board controls">
+          <div className={`search-field${searchQuery ? ' search-field--active' : ''}`}>
+            <label htmlFor="task-search">Search tasks</label>
+            <input
+              id="task-search"
+              type="search"
+              name="search"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder="Search by title or description"
+              autoComplete="off"
+            />
+            {searchQuery ? (
+              <button type="button" className="search-field__clear" onClick={handleClearSearch} aria-label="Clear search">
+                ×
+              </button>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            className={`filter-toggle${showPriorityOnly ? ' filter-toggle--active' : ''}`}
+            onClick={togglePriorityFilter}
+            aria-pressed={showPriorityOnly}
+          >
+            {showPriorityOnly ? 'Showing priority tasks' : 'Show priority tasks only'}
+          </button>
+        </div>
+
+        {hasActiveFilters ? (
+          <p className="filter-summary" role="status">
+            Showing {visibleTaskCount} of {tasks.length} tasks
+          </p>
+        ) : null}
       </header>
 
       <form className="task-form" onSubmit={handleSubmit}>
@@ -215,7 +383,7 @@ function App() {
 
       <div className="board" role="application" aria-label="Kanban board">
         {COLUMNS.map((column) => {
-          const columnTasks = tasksByStatus[column.key] ?? []
+          const columnTasks = filteredTasksByStatus[column.key] ?? []
           const columnTitleId = `${column.key}-title`
 
           const columnClassNames = ['column']
@@ -228,6 +396,11 @@ function App() {
             columnClassNames.push('column--droppable')
           }
 
+          const totalTasksInColumn = totalTasksByStatus[column.key] ?? 0
+          const badgeLabel = hasActiveFilters
+            ? `${columnTasks.length} of ${totalTasksInColumn} tasks`
+            : `${columnTasks.length} tasks`
+
           return (
             <section
               key={column.key}
@@ -239,29 +412,132 @@ function App() {
             >
               <header className="column-header">
                 <h2 id={columnTitleId}>{column.label}</h2>
-                <span className="badge" aria-label={`${columnTasks.length} tasks`}>
-                  {columnTasks.length}
+                <span className="badge" aria-label={badgeLabel}>
+                  {hasActiveFilters ? `${columnTasks.length}/${totalTasksInColumn}` : columnTasks.length}
                 </span>
               </header>
 
               <div className="column-body" role="list">
                 {columnTasks.length === 0 ? (
-                  <p className="empty-state">No tasks here yet. Drop a card to get started.</p>
+                  <p className="empty-state">
+                    {hasActiveFilters && totalTasksInColumn > 0
+                      ? 'No tasks match your filters.'
+                      : 'No tasks here yet. Drop a card to get started.'}
+                  </p>
                 ) : (
-                  columnTasks.map((task) => (
-                    <article
-                      key={task.id}
-                      className={`task-card${draggedTaskId === task.id ? ' task-card--dragging' : ''}`}
-                      draggable
-                      onDragStart={(event) => handleDragStart(event, task.id)}
-                      onDragEnd={handleDragEnd}
-                      role="listitem"
-                      aria-grabbed={draggedTaskId === task.id}
-                    >
-                      <h3 className="task-title">{task.title}</h3>
-                      {task.description ? <p className="task-description">{task.description}</p> : null}
-                    </article>
-                  ))
+                  columnTasks.map((task) => {
+                    const isEditing = editingTaskId === task.id
+
+                    const cardClassNames = ['task-card']
+
+                    if (draggedTaskId === task.id) {
+                      cardClassNames.push('task-card--dragging')
+                    }
+
+                    if (task.isPriority) {
+                      cardClassNames.push('task-card--priority')
+                    }
+
+                    if (isEditing) {
+                      cardClassNames.push('task-card--editing')
+                    }
+
+                    const dragProps = isEditing
+                      ? {}
+                      : {
+                          draggable: true,
+                          onDragStart: (event) => handleDragStart(event, task.id),
+                          onDragEnd: handleDragEnd,
+                          'aria-grabbed': draggedTaskId === task.id,
+                        }
+
+                    return (
+                      <article key={task.id} className={cardClassNames.join(' ')} role="listitem" {...dragProps}>
+                        <header className="task-card__header">
+                          <div className="task-card__title">
+                            {task.isPriority ? (
+                              <span className="task-priority-indicator" aria-label="Priority task" title="Priority task">
+                                ★
+                              </span>
+                            ) : null}
+                            <h3 className="task-title">{task.title}</h3>
+                          </div>
+                          <button
+                            type="button"
+                            className={`task-action task-action--priority${task.isPriority ? ' is-active' : ''}`}
+                            onClick={() => toggleTaskPriority(task.id)}
+                            aria-pressed={task.isPriority}
+                            aria-label={task.isPriority ? 'Remove priority flag' : 'Mark task as priority'}
+                          >
+                            ★
+                          </button>
+                        </header>
+
+                        {isEditing ? (
+                          <form className="task-edit-form" onSubmit={handleEditSubmit}>
+                            <div className="task-edit-field">
+                              <label className="sr-only" htmlFor={`edit-title-${task.id}`}>
+                                Edit task title
+                              </label>
+                              <input
+                                id={`edit-title-${task.id}`}
+                                name="title"
+                                type="text"
+                                value={editingData.title}
+                                onChange={handleEditFieldChange}
+                                autoComplete="off"
+                                placeholder="Update task title"
+                                required
+                              />
+                            </div>
+
+                            <div className="task-edit-field">
+                              <label className="sr-only" htmlFor={`edit-description-${task.id}`}>
+                                Edit task description
+                              </label>
+                              <textarea
+                                id={`edit-description-${task.id}`}
+                                name="description"
+                                value={editingData.description}
+                                onChange={handleEditFieldChange}
+                                rows={3}
+                                placeholder="Update task details"
+                              />
+                            </div>
+
+                            <div className="task-card__actions">
+                              <button type="button" onClick={cancelEditingTask} className="task-action">
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="task-action task-action--primary"
+                                disabled={isEditingSubmitDisabled}
+                              >
+                                Save changes
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <>
+                            {task.description ? <p className="task-description">{task.description}</p> : null}
+                            <div className="task-card__actions">
+                              <button type="button" className="task-action" onClick={() => startEditingTask(task)}>
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="task-action task-action--danger"
+                                onClick={() => handleDeleteTask(task.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </article>
+                    )
+                  })
                 )}
               </div>
             </section>
