@@ -36,15 +36,14 @@
 
 .board-controls {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 0.75rem;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 @media (min-width: 640px) {
   .board-controls {
-    flex-direction: row;
-    align-items: flex-end;
     gap: 1rem;
   }
 }
@@ -98,7 +97,8 @@
   padding: 0.65rem 1.4rem;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  align-self: flex-start;
+  align-self: flex-end;
+  flex-shrink: 0;
 }
 
 .filter-toggle:hover {
@@ -131,12 +131,13 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
+  align-items: flex-start;
 }
 
 @media (min-width: 720px) {
   .task-form {
     grid-template-columns: minmax(0, 260px) minmax(0, 1fr) auto;
-    align-items: end;
+    align-items: flex-start;
     gap: 1.25rem;
   }
 }
@@ -209,6 +210,8 @@
   .task-form button {
     width: auto;
     padding: 0.9rem 2rem;
+    align-self: flex-start;
+    margin-top: 1.6rem;
   }
 }
 
